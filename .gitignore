@@ -1,0 +1,15 @@
+common.log
+config
+
+*_account.session*
+*.db*
+*.mp3
+*.webm
+
+*sandbox*
+backlog.txt
+
+__pycache__/
+
+.DS_Store
+volume/last_processed_ids.json

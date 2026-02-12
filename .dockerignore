@@ -1,0 +1,17 @@
+.git
+.gitignore
+.cursorignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+.DS_Store
+
+volume/config
+volume/sessions
+volume/last_processed_ids.json
+
+common.log
+backlog.txt

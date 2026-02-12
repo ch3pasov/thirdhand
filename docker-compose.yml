@@ -1,0 +1,37 @@
+services:
+  thirdhand:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: thirdhand:latest
+    container_name: thirdhand
+
+    # Set to "1" for verbose startup/ffmpeg logs.
+    environment:
+      DEBUG: "0"
+
+    # Run normal mode by default. To debug, switch to: python main.py --debug
+    command: ["python", "main.py"]
+
+    volumes:
+      # Store config, session files, and runtime state on the VPS.
+      - ./volume:/app/volume
+
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Root FS is read-only; only /tmp and /app/volume stay writable.
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,noexec,nosuid
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
