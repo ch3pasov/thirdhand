@@ -8,7 +8,8 @@ __pycache__
 *.pyd
 
 .DS_Store
-volume/runtime/
+volume/runtime/*
+!volume/runtime/.gitkeep
 !volume/runtime_example/
 !volume/runtime_example/**
 

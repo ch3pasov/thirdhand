@@ -8,7 +8,8 @@ common.log
 backlog.txt
 
 # Runtime data in volume is local-only.
-volume/runtime/
+volume/runtime/*
+!volume/runtime/.gitkeep
 
 # Keep runtime examples in git.
 !volume/runtime_example/
