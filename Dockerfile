@@ -19,7 +19,7 @@ COPY . /app
 
 # Run as non-root user.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /app/volume \
+    && mkdir -p /app/volume/runtime/sessions \
     && chown -R appuser:appuser /app
 
 USER appuser

@@ -31,25 +31,33 @@ Or run with Docker (recommended for VPS).
 ## Project structure
 
 - `main.py` - bot logic
-- `volume/config_example/app.py` - example Telegram API config
-- `volume/config_example/tg_ids.py` - example channels config
-- `volume/config/` - local runtime config (ignored by git)
-- `volume/last_processed_ids.json` - runtime state (ignored by git)
-- `volume/sessions/` - Telethon sessions (ignored by git)
+- `volume/runtime_example/config.py` - config example with empty values
+- `volume/runtime_example/state.json` - state file example
+- `volume/runtime_example/sessions/.gitkeep` - sessions folder example
+- `volume/runtime/config.py` - local runtime config (ignored by git)
+- `volume/runtime/state.json` - local runtime state (ignored by git)
+- `volume/runtime/sessions/` - local Telethon sessions (ignored by git)
 
 ## Configuration
 
-Create local config files (ignored by git):
+Create local runtime files from examples:
 
-1. `volume/config/app.py`
-2. `volume/config/tg_ids.py`
+```bash
+mkdir -p volume/runtime/sessions
+cp volume/runtime_example/config.py volume/runtime/config.py
+cp volume/runtime_example/state.json volume/runtime/state.json
+```
 
-Use examples from `volume/config_example/`.
+Edit one config file:
 
-Expected fields:
+- `volume/runtime/config.py`
 
-- `app.py`: `api_id`, `api_hash`
-- `tg_ids.py`: `post_channel_id`, `steal_channel_ids`
+Expected fields in that file:
+
+- `api_id`, `api_hash`
+- `post_channel_id`
+- `steal_channel_ids`
+- optional `debug = True/False` (default startup debug mode)
 
 ## Local run
 
@@ -94,6 +102,6 @@ docker compose run --rm thirdhand python main.py --debug
 
 ## Security notes
 
-- `volume/config/` and `volume/sessions/` are ignored and should never be committed.
+- keep secrets in `volume/runtime/config.py` private on your server;
 - container runs as non-root user;
 - compose file uses read-only root filesystem and dropped Linux capabilities.

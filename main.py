@@ -1,5 +1,6 @@
 import asyncio
 import argparse
+import importlib.util
 import json
 import random
 import shutil
@@ -16,10 +17,12 @@ from telethon import utils
 from telethon.errors import FloodWaitError
 from telethon.tl.types import PeerChannel
 
-from volume.config.app import api_hash, api_id
-from volume.config.tg_ids import post_channel_id, steal_channel_ids
-
-STATE_PATH = Path("volume/last_processed_ids.json")
+RUNTIME_DIR = Path("volume/runtime")
+EXAMPLE_DIR = Path("volume/runtime_example")
+CONFIG_PATH = RUNTIME_DIR / "config.py"
+STATE_PATH = RUNTIME_DIR / "state.json"
+SESSIONS_DIR = RUNTIME_DIR / "sessions"
+SESSION_PATH = str(SESSIONS_DIR / "monitor_account")
 MAX_RETRIES = 5
 MEDIA_PREP_CONCURRENCY = 4
 DEBUG_MODE = False
@@ -27,6 +30,51 @@ DEBUG_MODE = False
 last_processed_ids: dict[str, int] = {}
 state_lock = asyncio.Lock()
 media_prep_semaphore = asyncio.Semaphore(MEDIA_PREP_CONCURRENCY)
+
+
+def ensure_runtime_layout() -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not CONFIG_PATH.exists():
+        example_config_path = EXAMPLE_DIR / "config.py"
+        if not example_config_path.exists():
+            raise FileNotFoundError(
+                "Missing runtime config template: volume/runtime_example/config.py"
+            )
+        shutil.copyfile(example_config_path, CONFIG_PATH)
+        print(
+            "Created runtime config from example: volume/runtime/config.py",
+            flush=True,
+        )
+
+    if not STATE_PATH.exists():
+        example_state_path = EXAMPLE_DIR / "state.json"
+        if example_state_path.exists():
+            shutil.copyfile(example_state_path, STATE_PATH)
+        else:
+            STATE_PATH.write_text("{}\n", encoding="utf-8")
+
+
+def load_runtime_config():
+    ensure_runtime_layout()
+    spec = importlib.util.spec_from_file_location(
+        "thirdhand_runtime_config", CONFIG_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError("Cannot load runtime config module from volume/runtime/config.py")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+runtime_config = load_runtime_config()
+api_id = runtime_config.api_id
+api_hash = runtime_config.api_hash
+post_channel_id = runtime_config.post_channel_id
+steal_channel_ids = runtime_config.steal_channel_ids
+config_debug = getattr(runtime_config, "debug", False)
 
 
 def format_post(event: events.NewMessage.Event) -> str:
@@ -616,16 +664,16 @@ async def process_missed_posts(client: TelegramClient, target_entity, watermark_
 async def main() -> None:
     if not steal_channel_ids:
         raise ValueError(
-            "steal_channel_ids is empty. Update volume/config/tg_ids.py first."
+            "steal_channel_ids is empty. Update volume/runtime/config.py first."
         )
     if not post_channel_id:
         raise ValueError(
-            "post_channel_id is not set. Update volume/config/tg_ids.py first."
+            "post_channel_id is not set. Update volume/runtime/config.py first."
         )
 
     last_processed_ids.update(load_state())
 
-    client = TelegramClient("volume/sessions/monitor_account", api_id, api_hash)
+    client = TelegramClient(SESSION_PATH, api_id, api_hash)
     target_entity = None
     watermark_path = None
     runtime_tmpdir = tempfile.TemporaryDirectory(prefix="thirdhand-runtime-")
@@ -711,7 +759,7 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
-    DEBUG_MODE = args.debug
+    DEBUG_MODE = args.debug or config_debug
     if DEBUG_MODE:
         print("[debug] Debug mode enabled", flush=True)
     asyncio.run(main())

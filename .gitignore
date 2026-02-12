@@ -1,15 +1,15 @@
-common.log
-config
-
-*_account.session*
-*.db*
-*.mp3
-*.webm
-
-*sandbox*
-backlog.txt
-
 __pycache__/
+.venv/
+venv/
+*.py[cod]
 
 .DS_Store
-volume/last_processed_ids.json
+common.log
+backlog.txt
+
+# Runtime data in volume is local-only.
+volume/runtime/
+
+# Keep runtime examples in git.
+!volume/runtime_example/
+!volume/runtime_example/**

@@ -8,10 +8,9 @@ __pycache__
 *.pyd
 
 .DS_Store
-
-volume/config
-volume/sessions
-volume/last_processed_ids.json
+volume/runtime/
+!volume/runtime_example/
+!volume/runtime_example/**
 
 common.log
 backlog.txt
