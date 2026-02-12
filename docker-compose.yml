@@ -6,18 +6,26 @@ services:
     image: thirdhand:latest
     container_name: thirdhand
 
-    # Set to "1" for verbose startup/ffmpeg logs.
+    # Set THIRDHAND_DEBUG=1 in .env to enable verbose logs.
     environment:
-      DEBUG: "0"
+      THIRDHAND_DEBUG: "${THIRDHAND_DEBUG:-0}"
+      TZ: "${TZ:-UTC}"
 
-    # Run normal mode by default. To debug, switch to: python main.py --debug
-    command: ["python", "main.py"]
+    # Debug switch without editing compose:
+    # THIRDHAND_DEBUG=1 docker compose up -d
+    command:
+      [
+        "sh",
+        "-c",
+        "if [ \"$THIRDHAND_DEBUG\" = \"1\" ]; then exec python main.py --debug; else exec python main.py; fi",
+      ]
 
     volumes:
       # Store config, session files, and runtime state on the VPS.
       - ./volume:/app/volume
 
     restart: unless-stopped
+    stop_signal: SIGINT
     stop_grace_period: 30s
 
     security_opt:

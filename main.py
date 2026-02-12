@@ -143,9 +143,9 @@ def apply_watermark_to_photo(
     wm_alpha = (watermark[:, :, 3].astype("float32") / 255.0) * 0.24
     wm_alpha = wm_alpha[:, :, None]
 
-    roi = image[y : y + side, x : x + side].astype("float32")
+    roi = image[y:y + side, x:x + side].astype("float32")
     blended = roi * (1.0 - wm_alpha) + wm_rgb * wm_alpha
-    image[y : y + side, x : x + side] = blended.astype("uint8")
+    image[y:y + side, x:x + side] = blended.astype("uint8")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(output_path), image):
