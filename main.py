@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Sequence
 
 import cv2
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions, types
 from telethon import utils
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, RPCError
 from telethon.tl.types import PeerChannel
 
 RUNTIME_DIR = Path("volume/runtime")
@@ -30,6 +30,10 @@ DEBUG_MODE = False
 last_processed_ids: dict[str, int] = {}
 state_lock = asyncio.Lock()
 media_prep_semaphore = asyncio.Semaphore(MEDIA_PREP_CONCURRENCY)
+reaction_mode_by_chat: dict[int, str] = {}
+reaction_peer_cache: dict[int, object] = {}
+fatal_handler_error: Exception | None = None
+paid_reactions_available = True
 
 
 def ensure_runtime_layout() -> None:
@@ -276,6 +280,181 @@ def debug_log(message: str) -> None:
         print(f"[debug] {message}", flush=True)
 
 
+def _is_insufficient_stars_error(error: Exception) -> bool:
+    marker = str(error).upper()
+    known_markers = (
+        "BALANCE_TOO_LOW",
+        "NOT_ENOUGH_STARS",
+        "STARS_TOO_LOW",
+        "STARS_BALANCE",
+        "NO_STARS",
+    )
+    return any(token in marker for token in known_markers)
+
+
+def _is_random_id_expired_error(error: Exception) -> bool:
+    return "RANDOM_ID_EXPIRED" in str(error).upper()
+
+
+def make_paid_reaction_random_id() -> int:
+    # Telegram expects time-based random_id for paid reactions in raw API.
+    unix_seconds = int(time.time())
+    entropy = random.getrandbits(32)
+    return (unix_seconds << 32) | entropy
+
+
+async def get_own_stars_balance(client: TelegramClient) -> int | None:
+    if not hasattr(functions, "payments"):
+        return None
+    if not hasattr(functions.payments, "GetStarsStatusRequest"):
+        return None
+
+    try:
+        status = await client(
+            functions.payments.GetStarsStatusRequest(
+                peer="me",
+            )
+        )
+    except Exception as error:
+        debug_log(f"startup: failed to fetch stars balance: {error}")
+        return None
+
+    balance = getattr(status, "balance", None)
+    if balance is None:
+        return None
+
+    amount = int(getattr(balance, "amount", 0) or 0)
+    # One paid reaction costs one whole star.
+    return amount
+
+
+async def try_send_preferred_reaction(
+    client: TelegramClient, source_peer, source_chat_id: int, source_msg_id: int
+) -> None:
+    global paid_reactions_available
+
+    if source_msg_id <= 0:
+        return
+
+    resolved_source_peer = source_peer or reaction_peer_cache.get(source_chat_id)
+    if resolved_source_peer is None:
+        resolved_source_peer = await resolve_entity_safe(client, source_chat_id)
+    reaction_peer_cache[source_chat_id] = resolved_source_peer
+
+    known_mode = reaction_mode_by_chat.get(source_chat_id)
+    can_try_paid = paid_reactions_available and hasattr(
+        functions.messages, "SendPaidReactionRequest"
+    )
+
+    if known_mode != "heart" and known_mode != "none" and can_try_paid:
+        try:
+            # Explicit random_id avoids sporadic RANDOM_ID_EXPIRED errors.
+            await client(
+                functions.messages.SendPaidReactionRequest(
+                    peer=resolved_source_peer,
+                    msg_id=source_msg_id,
+                    count=1,
+                    random_id=make_paid_reaction_random_id(),
+                    private=types.PaidReactionPrivacyDefault(),
+                )
+            )
+            reaction_mode_by_chat[source_chat_id] = "paid"
+            print(
+                f"Applied paid star reaction to original post: chat_id={source_chat_id} "
+                f"message_id={source_msg_id}",
+                flush=True,
+            )
+            return
+        except RPCError as error:
+            if _is_random_id_expired_error(error):
+                try:
+                    debug_log(
+                        "paid star reaction got RANDOM_ID_EXPIRED; retrying once "
+                        f"(chat_id={source_chat_id}, msg_id={source_msg_id})"
+                    )
+                    await client(
+                        functions.messages.SendPaidReactionRequest(
+                            peer=resolved_source_peer,
+                            msg_id=source_msg_id,
+                            count=1,
+                            random_id=make_paid_reaction_random_id(),
+                            private=types.PaidReactionPrivacyDefault(),
+                        )
+                    )
+                    reaction_mode_by_chat[source_chat_id] = "paid"
+                    print(
+                        "Applied paid star reaction to original post after retry: "
+                        f"chat_id={source_chat_id} message_id={source_msg_id}",
+                        flush=True,
+                    )
+                    return
+                except RPCError as retry_error:
+                    error = retry_error
+            if _is_insufficient_stars_error(error):
+                paid_reactions_available = False
+                print(
+                    "Paid star reactions disabled: insufficient stars balance",
+                    flush=True,
+                )
+            debug_log(
+                "paid star reaction failed; trying heart fallback "
+                f"(chat_id={source_chat_id}, msg_id={source_msg_id}, error={error})"
+            )
+            reaction_mode_by_chat[source_chat_id] = "heart"
+        except Exception as error:
+            debug_log(
+                "paid star reaction failed unexpectedly; trying heart fallback "
+                f"(chat_id={source_chat_id}, msg_id={source_msg_id}, error={error})"
+            )
+            reaction_mode_by_chat[source_chat_id] = "heart"
+
+    if known_mode == "none":
+        debug_log(
+            "skip reaction: channel previously marked unsupported "
+            f"(chat_id={source_chat_id})"
+        )
+        return
+
+    try:
+        await client(
+            functions.messages.SendReactionRequest(
+                peer=resolved_source_peer,
+                msg_id=source_msg_id,
+                reaction=[types.ReactionEmoji(emoticon="❤")],
+                add_to_recent=False,
+                big=False,
+            )
+        )
+        reaction_mode_by_chat[source_chat_id] = "heart"
+        print(
+            f"Applied heart reaction to original post: chat_id={source_chat_id} "
+            f"message_id={source_msg_id}",
+            flush=True,
+        )
+    except RPCError as error:
+        reaction_mode_by_chat[source_chat_id] = "none"
+        reaction_peer_cache.pop(source_chat_id, None)
+        debug_log(
+            "heart reaction failed; skipping reactions for this channel "
+            f"(chat_id={source_chat_id}, msg_id={source_msg_id}, error={error})"
+        )
+    except Exception as error:
+        reaction_mode_by_chat[source_chat_id] = "none"
+        reaction_peer_cache.pop(source_chat_id, None)
+        debug_log(
+            "unexpected heart reaction failure; skipping this channel reactions "
+            f"(chat_id={source_chat_id}, msg_id={source_msg_id}, error={error})"
+        )
+
+
+async def fail_fast(client: TelegramClient, error: Exception) -> None:
+    global fatal_handler_error
+    if fatal_handler_error is None:
+        fatal_handler_error = error
+    print(f"Fatal handler error: {error}", flush=True)
+    await client.disconnect()
+
+
 def apply_watermark_to_video(
     input_path: Path, output_path: Path, watermark_path: Path
 ) -> None:
@@ -511,7 +690,12 @@ async def resolve_entity_safe(client: TelegramClient, source):
 
 
 async def forward_single_message(
-    client: TelegramClient, target_entity, message, watermark_path: Path
+    client: TelegramClient,
+    target_entity,
+    source_entity,
+    message,
+    watermark_path: Path,
+    apply_source_reaction: bool = True,
 ) -> None:
     if message.id is None or message.chat_id is None:
         return
@@ -540,11 +724,23 @@ async def forward_single_message(
                 )
 
     await safe_send("Single repost", _send_single)
+    if apply_source_reaction:
+        await try_send_preferred_reaction(client, source_entity, chat_id, message.id)
+    else:
+        debug_log(
+            "skip source reaction for catch-up single post "
+            f"(chat_id={chat_id}, msg_id={message.id})"
+        )
     await mark_processed(chat_id, message.id)
 
 
 async def forward_album_messages(
-    client: TelegramClient, target_entity, messages: Sequence, watermark_path: Path
+    client: TelegramClient,
+    target_entity,
+    source_entity,
+    messages: Sequence,
+    watermark_path: Path,
+    apply_source_reaction: bool = True,
 ) -> None:
     if not messages:
         return
@@ -587,6 +783,19 @@ async def forward_album_messages(
             )
 
     await safe_send("Album repost", _send_album)
+    # Treat album as one post: react to the first message in the group.
+    if apply_source_reaction:
+        await try_send_preferred_reaction(
+            client,
+            source_entity,
+            chat_id,
+            min(album_ids),
+        )
+    else:
+        debug_log(
+            "skip source reaction for catch-up album "
+            f"(chat_id={chat_id}, msg_id={min(album_ids)})"
+        )
     await mark_processed(chat_id, max_album_id)
 
 
@@ -647,7 +856,12 @@ async def process_missed_posts(client: TelegramClient, target_entity, watermark_
                     flush=True,
                 )
                 await forward_album_messages(
-                    client, target_entity, album_messages, watermark_path
+                    client,
+                    target_entity,
+                    entity,
+                    album_messages,
+                    watermark_path,
+                    apply_source_reaction=False,
                 )
             else:
                 print(
@@ -656,12 +870,19 @@ async def process_missed_posts(client: TelegramClient, target_entity, watermark_
                     flush=True,
                 )
                 await forward_single_message(
-                    client, target_entity, message, watermark_path
+                    client,
+                    target_entity,
+                    entity,
+                    message,
+                    watermark_path,
+                    apply_source_reaction=False,
                 )
                 index += 1
 
 
 async def main() -> None:
+    global paid_reactions_available
+
     if not steal_channel_ids:
         raise ValueError(
             "steal_channel_ids is empty. Update volume/runtime/config.py first."
@@ -681,25 +902,63 @@ async def main() -> None:
 
     @client.on(events.Album(chats=steal_channel_ids))
     async def on_new_album(event: events.Album.Event) -> None:
-        if target_entity is None or watermark_path is None:
-            return
-        print(format_album(event), flush=True)
-        await forward_album_messages(client, target_entity, event.messages, watermark_path)
+        try:
+            if target_entity is None or watermark_path is None:
+                return
+            print(format_album(event), flush=True)
+            source_entity = await event.get_input_chat()
+            await forward_album_messages(
+                client,
+                target_entity,
+                source_entity,
+                event.messages,
+                watermark_path,
+            )
+        except Exception as error:
+            await fail_fast(client, error)
 
     @client.on(events.NewMessage(chats=steal_channel_ids))
     async def on_new_post(event: events.NewMessage.Event) -> None:
-        if target_entity is None or watermark_path is None:
-            return
-        if event.message.grouped_id:
-            # Album messages are forwarded by the Album handler as a group.
-            return
-        print(format_post(event), flush=True)
-        await forward_single_message(client, target_entity, event.message, watermark_path)
+        try:
+            if target_entity is None or watermark_path is None:
+                return
+            if event.message.grouped_id:
+                # Album messages are forwarded by the Album handler as a group.
+                return
+            print(format_post(event), flush=True)
+            source_entity = await event.get_input_chat()
+            await forward_single_message(
+                client,
+                target_entity,
+                source_entity,
+                event.message,
+                watermark_path,
+            )
+        except Exception as error:
+            await fail_fast(client, error)
 
     debug_log("startup: connecting Telegram client")
     step_started_at = time.monotonic()
     await client.start()
     debug_log(f"startup: client connected in {time.monotonic() - step_started_at:.2f}s")
+    stars_balance = await get_own_stars_balance(client)
+    if stars_balance is None:
+        print(
+            "Stars balance check: unavailable (paid reactions will be attempted on demand)",
+            flush=True,
+        )
+    elif stars_balance >= 1:
+        print(
+            f"Stars balance check: OK ({stars_balance} available)",
+            flush=True,
+        )
+    else:
+        paid_reactions_available = False
+        print(
+            "Stars balance check: insufficient (0). Paid star reactions disabled; "
+            "heart reaction fallback will be used.",
+            flush=True,
+        )
     try:
         debug_log("startup: resolving target channel entity")
         step_started_at = time.monotonic()
@@ -742,6 +1001,8 @@ async def main() -> None:
             flush=True,
         )
         await client.run_until_disconnected()
+        if fatal_handler_error is not None:
+            raise RuntimeError("Fatal error in update handler") from fatal_handler_error
     finally:
         runtime_tmpdir.cleanup()
 
