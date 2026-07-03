@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     image: thirdhand:latest
     container_name: thirdhand
+    user: "${THIRDHAND_UID:-1000}:${THIRDHAND_GID:-1000}"
 
     environment:
       TZ: "${TZ:-UTC}"
