@@ -7,6 +7,14 @@ venv/
 common.log
 backlog.txt
 
+.env
+.env.*
+!.env.example
+
+# Local agent instructions and permissions.
+.codex/
+AGENTS.md
+
 # Runtime data in volume is local-only.
 volume/runtime/*
 !volume/runtime/.gitkeep

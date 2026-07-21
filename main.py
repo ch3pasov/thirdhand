@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import importlib.util
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -74,8 +75,8 @@ def load_runtime_config():
 
 
 runtime_config = load_runtime_config()
-api_id = runtime_config.api_id
-api_hash = runtime_config.api_hash
+api_id = int(os.environ.get("TELEGRAM_API_ID") or runtime_config.api_id)
+api_hash = os.environ.get("TELEGRAM_API_HASH") or runtime_config.api_hash
 post_channel_id = runtime_config.post_channel_id
 steal_channel_ids = runtime_config.steal_channel_ids
 config_debug = getattr(runtime_config, "debug", False)

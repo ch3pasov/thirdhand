@@ -9,6 +9,8 @@ services:
 
     environment:
       TZ: "${TZ:-UTC}"
+      TELEGRAM_API_ID: "${TELEGRAM_API_ID:-}"
+      TELEGRAM_API_HASH: "${TELEGRAM_API_HASH:-}"
     command: ["python", "main.py"]
 
     volumes:
