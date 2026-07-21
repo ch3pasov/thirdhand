@@ -90,7 +90,7 @@ def format_post(event: events.NewMessage.Event) -> str:
         f"[{datetime.now().isoformat(timespec='seconds')}] New post",
         f"chat_id={event.chat_id} message_id={message.id}",
         f"date={message.date.isoformat() if message.date else '-'}",
-        f"text={message.text or '<no text>'}",
+        f"text_length={len(message.text or '')}",
     ]
 
     if message.media:
@@ -110,7 +110,7 @@ def format_album(event: events.Album.Event) -> str:
         f"chat_id={event.chat_id} grouped_id={first.grouped_id}",
         f"message_ids={[m.id for m in messages]}",
         f"date={first.date.isoformat() if first.date else '-'}",
-        f"text={first.text or '<no text>'}",
+        f"text_length={len(first.text or '')}",
         f"items={len(messages)}",
         "=" * 60,
     ]
