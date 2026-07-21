@@ -1,6 +1,8 @@
 .git
 .gitignore
 .cursorignore
+.codex
+AGENTS.md
 .venv
 __pycache__
 *.pyc

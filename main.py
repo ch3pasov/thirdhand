@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import importlib.util
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -74,8 +75,8 @@ def load_runtime_config():
 
 
 runtime_config = load_runtime_config()
-api_id = runtime_config.api_id
-api_hash = runtime_config.api_hash
+api_id = int(os.environ.get("TELEGRAM_API_ID") or runtime_config.api_id)
+api_hash = os.environ.get("TELEGRAM_API_HASH") or runtime_config.api_hash
 post_channel_id = runtime_config.post_channel_id
 steal_channel_ids = runtime_config.steal_channel_ids
 config_debug = getattr(runtime_config, "debug", False)
@@ -89,7 +90,7 @@ def format_post(event: events.NewMessage.Event) -> str:
         f"[{datetime.now().isoformat(timespec='seconds')}] New post",
         f"chat_id={event.chat_id} message_id={message.id}",
         f"date={message.date.isoformat() if message.date else '-'}",
-        f"text={message.text or '<no text>'}",
+        f"text_length={len(message.text or '')}",
     ]
 
     if message.media:
@@ -109,7 +110,7 @@ def format_album(event: events.Album.Event) -> str:
         f"chat_id={event.chat_id} grouped_id={first.grouped_id}",
         f"message_ids={[m.id for m in messages]}",
         f"date={first.date.isoformat() if first.date else '-'}",
-        f"text={first.text or '<no text>'}",
+        f"text_length={len(first.text or '')}",
         f"items={len(messages)}",
         "=" * 60,
     ]
