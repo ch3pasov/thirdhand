@@ -143,6 +143,4 @@ inside it with an isolated in-memory runtime directory:
 
 ## License
 
-No public license has been selected yet. Until a license file is added, normal
-copyright restrictions apply; publishing the source alone would not grant
-permission to copy, modify or redistribute it.
+GNU Affero General Public License v3.0. See `LICENSE`.
