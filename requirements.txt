@@ -1,2 +1,2 @@
-telethon
-opencv-python-headless
+telethon==1.44.0
+opencv-python-headless==5.0.0.93
