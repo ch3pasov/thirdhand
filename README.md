@@ -1,16 +1,15 @@
 # ТРОЙСЫРЬЁ (Thirdhand)
 
-Telegram repost bot on `Telethon` with watermark processing:
+A small Telethon worker that republishes selected Telegram channel posts into
+another channel and marks photos and videos with the destination avatar. It
+preserves albums, catches up after restarts and keeps its deployment state on
+disk.
 
-- listens for new posts in source channels (`steal_channel_ids`);
-- republishes to target channel (`post_channel_id`);
-- keeps album order and format;
-- applies watermark to photos and videos;
-- supports catch-up after restart via stored last processed IDs.
+Use it only with channels and media you are allowed to access and republish.
 
 ## Features
 
-- **Reliable restart behavior**: remembers last handled message ID per source channel.
+- **Reliable restart behavior**: remembers the last handled message ID for each source channel.
 - **Albums preserved**: photos/videos are posted in the same order as original.
 - **Photo watermark**: channel avatar (from target channel) is applied with random position.
 - **Video watermark**:
@@ -19,12 +18,19 @@ Telegram repost bot on `Telethon` with watermark processing:
   - DVD-like bouncing motion;
   - starts from bottom-left corner.
 - **Debug mode**: detailed startup and ffmpeg progress logs.
+- **Source acknowledgement**: attempts a one-Star paid reaction on each new
+  source post and falls back to a heart when paid reactions are unavailable.
+
+Catch-up posts intentionally do not receive reactions. A successful paid
+reaction spends one Telegram Star, so check the account balance before leaving
+the worker unattended.
 
 ## Requirements
 
 - Python 3.11+
 - `ffmpeg` (for video watermarking)
 - Telegram API credentials (`api_id`, `api_hash`)
+- a Telegram user account that can read every source and post to the target
 
 Or run with Docker (recommended for VPS).
 
@@ -48,16 +54,16 @@ cp volume/runtime_example/config.py volume/runtime/config.py
 cp volume/runtime_example/state.json volume/runtime/state.json
 ```
 
-Edit one config file:
+Edit `volume/runtime/config.py` and set:
 
-- `volume/runtime/config.py`
+- `post_channel_id`;
+- `steal_channel_ids`;
+- optional `debug = True/False`.
 
-Expected fields in that file:
-
-- `api_id`, `api_hash`
-- `post_channel_id`
-- `steal_channel_ids`
-- optional `debug = True/False` (default startup debug mode)
+Copy `.env.example` to `.env` and provide `TELEGRAM_API_ID` and
+`TELEGRAM_API_HASH`. The matching `api_id` and `api_hash` fields in
+`config.py` are retained only as a backwards-compatible fallback and should
+stay empty in new installations.
 
 ## Local run
 
@@ -81,7 +87,7 @@ python main.py --debug
 
 ## Docker / VPS run
 
-Build and start:
+Build and start with exported credentials or a local `.env` file:
 
 ```bash
 docker compose build
@@ -100,8 +106,43 @@ Debug run in container:
 docker compose run --rm thirdhand python main.py --debug
 ```
 
+`compose-with-secrets` is the owner's deployment wrapper for injecting the
+same two credentials from a scoped 1Password vault. Plain Docker Compose is
+the portable interface.
+
+## Runtime and privacy
+
+- `volume/runtime/sessions/` contains the authorized Telethon session and must
+  never be committed or shared;
+- `volume/runtime/state.json` stores only the last processed message ID per
+  source channel;
+- downloaded media and generated watermarks live in temporary directories and
+  are removed after each send;
+- operational logs include channel and message identifiers, media types and
+  text lengths, but not post bodies or downloaded media;
+- Docker rotates JSON logs at five 10 MB files.
+
+The container runs without root privileges, capabilities or a writable root
+filesystem. Its only persistent writable mount is `volume/`; `/tmp` is an
+in-memory filesystem.
+
+## Tests
+
+The test runner builds the production image and executes the `unittest` suite
+inside it with an isolated in-memory runtime directory:
+
+```bash
+./scripts/run_tests.sh
+```
+
 ## Security notes
 
-- keep secrets in `volume/runtime/config.py` private on your server;
+- keep `.env`, `volume/runtime/config.py` and the Telethon session private;
 - container runs as non-root user;
 - compose file uses read-only root filesystem and dropped Linux capabilities.
+
+## License
+
+No public license has been selected yet. Until a license file is added, normal
+copyright restrictions apply; publishing the source alone would not grant
+permission to copy, modify or redistribute it.
