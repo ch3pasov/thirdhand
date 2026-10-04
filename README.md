@@ -128,6 +128,17 @@ in-memory filesystem.
 
 ## Tests
 
+The checkpoint persistence checks run with Python's standard library alone:
+
+```bash
+python3 -B tests/test_state_offline.py
+```
+
+They extract only the state functions from `main.py`, use temporary synthetic
+state, and do not import the worker, load runtime configuration, or connect to
+Telegram. The checks verify that a failed state write leaves the in-memory
+checkpoint unchanged and retryable. They do not replace the integration suite.
+
 The test runner builds the production image and executes the `unittest` suite
 inside it with an isolated in-memory runtime directory:
 

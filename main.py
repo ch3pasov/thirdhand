@@ -158,8 +158,12 @@ async def mark_processed(chat_id: int, message_id: int) -> None:
         current = int(last_processed_ids.get(key, 0))
         if message_id <= current:
             return
+        next_state = last_processed_ids.copy()
+        next_state[key] = message_id
+        # Keep the in-memory cursor unchanged if writing or replacing the
+        # state file fails, so retrying this checkpoint cannot become a no-op.
+        save_state(next_state)
         last_processed_ids[key] = message_id
-        save_state(last_processed_ids)
 
 
 def apply_watermark_to_photo(
